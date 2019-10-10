@@ -16,7 +16,7 @@
 // fit both of the vector addresses into the same memory locations ... and they
 // won't fit.
 // *****************************************************************************
-#pragma vector=ADC12_VECTOR
+// #pragma vector=ADC12_VECTOR
 #pragma vector=COMP_B_VECTOR
 #pragma vector=DMA_VECTOR
 #pragma vector=PORT1_VECTOR

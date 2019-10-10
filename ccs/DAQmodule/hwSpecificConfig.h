@@ -41,10 +41,10 @@
  * names to follow OneMCU naming convention.
  +---------------------------------------------------------------------------*/
 
-#define XT1_FREQ_HZ 32768
-#define XT2_FREQ_HZ 4194304
-#define MCLK_FREQ_KHZ 8192
-#define MCLK_FLLREF_RATIO (MCLK_FREQ_KHZ / (XT1_FREQ_HZ / 1024))
+#define XT1_FREQ_HZ    32768
+#define XT2_FREQ_HZ  4000000
+#define MCLK_FREQ_HZ 8000000
+#define MCLK_FLLREF_RATIO (MCLK_FREQ_HZ / XT1_FREQ_HZ)
 
 //-----------------------------------------------------------------------------
 static uint32_t myACLK  = 0;
@@ -57,5 +57,6 @@ static uint32_t myMCLK  = 0;
 #endif
 
 void USBHAL_initPorts(void);
-void USBHAL_initClocks(uint32_t mclkFreq);
+void USBHAL_initClocks(void);
+void USBHAL_initADC12(void);
 //Released_Version_5_20_06_02

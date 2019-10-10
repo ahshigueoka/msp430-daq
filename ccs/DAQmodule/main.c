@@ -1,5 +1,4 @@
 #include <driverlib.h>
-#include "hwSpecificConfig.h"
 #include "USB_config/descriptors.h"
 #include "USB_API/USB_Common/device.h"
 #include "USB_API/USB_Common/usb.h"
@@ -10,6 +9,7 @@
  * NOTE: Modify hal.h to select a specific evaluation board and customize for
  * your own board.
  */
+#include "hwSpecificConfig.h"
 
 /*******************************************************************************
  * Auxiliary function declarations
@@ -19,9 +19,12 @@ void initRTC(void);
 /*******************************************************************************
  * Global variables
  */
-volatile uint8_t  hour = 0, min = 0, sec = 0; // Real-time clock (RTC) values.
-volatile uint8_t  flagSendValue = FALSE;    // Signal that the analog read must be sent
-volatile uint16_t analogBuffer;                 // Stores the 12-bit value obtained from ADC12
+// Real-time clock (RTC) values
+volatile uint8_t  hour = 0, min = 0, sec = 0;
+// Signalizes that the analog channel 0 reading has finished
+volatile uint8_t  flagAN0_start = FALSE, flagAN0_ready = FALSE;
+// Stores the 12-bit value obtained from ADC12
+volatile uint16_t analogBuffer0;
 
 /*******************************************************************************
  * Main loop
@@ -41,14 +44,28 @@ void main(void)
     // MCLK = 8MHz
     // SMCLK = 4MHz
     // ACLK = XT1 = FLL = 32768Hz
-    USBHAL_initClocks(8000000);
+    USBHAL_initClocks();
+
+    USBHAL_initADC12();
 
     initRTC();
 
     __enable_interrupt();
     while(1)
     {
-        _NOP();
+        if(flagAN0_start)
+        {
+            flagAN0_start = FALSE;
+            GPIO_setOutputHighOnPin(GPIO_PORT_P1, GPIO_PIN3);
+            ADC12_A_startConversion(ADC12_A_BASE, ADC12_A_MEMORY_0, ADC12_A_SINGLECHANNEL);
+        }
+        if(flagAN0_ready)
+        {
+            flagAN0_ready = FALSE;
+            // Get the value from ADC12, channel 0
+            analogBuffer0 = ADC12_A_getResults(ADC12_A_BASE, ADC12_A_MEMORY_0);
+            GPIO_setOutputLowOnPin(GPIO_PORT_P1, GPIO_PIN3);
+        }
     }
 }
 
@@ -82,17 +99,68 @@ void initRTC(void)
  *
  * Generated when TimerA_0 (real-time clock) rolls over from 32768 to 0,
  * every second.
+ *
+ * Timer0, CCR0 interrupt
  */
 #if defined(__TI_COMPILER_VERSION__) || (__IAR_SYSTEMS_ICC__)
 #pragma vector=TIMER0_A0_VECTOR
 __interrupt void TIMER0_A0_ISR (void)
 #elif defined(__GNUC__) && (__MSP430__)
-void __attribute__ ((interrupt(TIMER0_A0_VECTOR))) TIMER0_A1_ISR (void)
+void __attribute__ ((interrupt(TIMER0_A0_VECTOR))) TIMER0_A0_ISR (void)
 #else
 #error Compiler not found!
 #endif
 {
+    // Blink LED to show that analog to digital conversion will take place
     P1OUT ^= 0x01;
+    // Start ADC12, channel 0
+    flagAN0_start = TRUE;
+}
+
+/*******************************************************************************
+ * ADC12 interrupt service routine
+ */
+#if defined(__TI_COMPILER_VERSION__) || (__IAR_SYSTEMS_ICC__)
+#pragma vector=ADC12_VECTOR
+__interrupt void ADC12_ISR(void)
+#elif defined(__GNUC__) && (__MSP430__)
+void __attribute__ ((interrupt(ADC12_VECTOR))) ADC12_ISR (void)
+#else
+#error Compiler not found!
+#endif
+{
+    switch (__even_in_range(ADC12IV,34))
+    {
+    case  0: break;   //Vector  0:  No interrupt
+    case  2: break;   //Vector  2:  ADC overflow
+    case  4: break;   //Vector  4:  ADC timing overflow
+    case  6:          //Vector  6:  ADC12IFG0
+        // Warn that the reading is complete
+        P1OUT ^= 0x04;
+        flagAN0_ready = TRUE;
+
+        //Exit active CPU
+        //__bic_SR_register_on_exit(LPM0_bits);
+        //Clear interrupt flag ADC12IFG0
+        ADC12IFG &= 0xFFFE;
+        break;
+    case  8: break;   //Vector  8:  ADC12IFG1
+    case 10: break;   //Vector 10:  ADC12IFG2
+    case 12: break;   //Vector 12:  ADC12IFG3
+    case 14: break;   //Vector 14:  ADC12IFG4
+    case 16: break;   //Vector 16:  ADC12IFG5
+    case 18: break;   //Vector 18:  ADC12IFG6
+    case 20: break;   //Vector 20:  ADC12IFG7
+    case 22: break;   //Vector 22:  ADC12IFG8
+    case 24: break;   //Vector 24:  ADC12IFG9
+    case 26: break;   //Vector 26:  ADC12IFG10
+    case 28: break;   //Vector 28:  ADC12IFG11
+    case 30: break;   //Vector 30:  ADC12IFG12
+    case 32: break;   //Vector 32:  ADC12IFG13
+    case 34: break;   //Vector 34:  ADC12IFG14
+    default:
+        _never_executed();
+    }
 }
 
 /*******************************************************************************
