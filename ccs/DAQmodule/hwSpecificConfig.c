@@ -102,6 +102,10 @@ void USBHAL_initPorts(void)
     GPIO_setOutputLowOnPin(GPIO_PORT_PJ, GPIO_ALL);
     GPIO_setAsOutputPin(GPIO_PORT_PJ, GPIO_ALL);
 #endif
+    // Configure pins according to necessity
+    // Configure the ADC12 input pin
+    //P6.0 ADC12 Channel 0
+    GPIO_setAsPeripheralModuleFunctionInputPin(GPIO_PORT_P6, GPIO_PIN0);
 }
 
 /*******************************************************************************

@@ -22,7 +22,7 @@ void initRTC(void);
 // Real-time clock (RTC) values
 volatile uint8_t  hour = 0, min = 0, sec = 0;
 // Signalizes that the analog channel 0 reading has finished
-volatile uint8_t  flagAN0_start = FALSE, flagAN0_ready = FALSE;
+volatile uint8_t  flagAN0_ready = FALSE;
 // Stores the 12-bit value obtained from ADC12
 volatile uint16_t analogBuffer0;
 
@@ -31,6 +31,7 @@ volatile uint16_t analogBuffer0;
  */
 void main(void)
 {
+    uint8_t flagUSB = 0;
     //Stop watchdog timer
     WDT_A_hold(WDT_A_BASE);
 
@@ -45,26 +46,72 @@ void main(void)
     // SMCLK = 4MHz
     // ACLK = XT1 = FLL = 32768Hz
     USBHAL_initClocks();
-
     USBHAL_initADC12();
+    // Init USB & events; if a host is present, connect
+    USB_setup(TRUE,TRUE);
 
     initRTC();
 
     __enable_interrupt();
     while(1)
     {
-        if(flagAN0_start)
+        flagUSB = USB_getConnectionState();
+        switch(flagUSB)
         {
-            flagAN0_start = FALSE;
-            GPIO_setOutputHighOnPin(GPIO_PORT_P1, GPIO_PIN3);
-            ADC12_A_startConversion(ADC12_A_BASE, ADC12_A_MEMORY_0, ADC12_A_SINGLECHANNEL);
-        }
-        if(flagAN0_ready)
-        {
-            flagAN0_ready = FALSE;
-            // Get the value from ADC12, channel 0
-            analogBuffer0 = ADC12_A_getResults(ADC12_A_BASE, ADC12_A_MEMORY_0);
-            GPIO_setOutputLowOnPin(GPIO_PORT_P1, GPIO_PIN3);
+            case ST_ENUM_ACTIVE:
+                // Note: USB communication only works during either
+                //       active state or LPM0
+                GPIO_setOutputLowOnPin(GPIO_PORT_P4, GPIO_PIN7);
+                GPIO_setOutputHighOnPin(GPIO_PORT_P1, GPIO_PIN0);
+                __bis_SR_register(LPM0_bits + GIE);
+                __no_operation();
+                // Check if the analog value is ready to be sent
+                // flag is set by the ADC12 ISR
+                if(flagAN0_ready)
+                {
+                    // Reset the flag
+                    flagAN0_ready = FALSE;
+                    // Try to send the analog value through USB
+                    switch(USBCDC_sendDataInBackground((uint8_t *) &analogBuffer0, 2, CDC0_INTFNUM, 10))
+                    {
+                        case 0:
+                            // Success
+                            GPIO_setOutputLowOnPin(GPIO_PORT_P1, GPIO_PIN0);
+                            break;
+                        case 1:
+                            // Timeout
+                            __no_operation();
+                            break;
+                        case 2:
+                            // Bus is gone
+                            __no_operation();
+                            break;
+                        default:
+                            __no_operation();
+                            // Should not stop here.
+                            // There must be a bug in USBCDC_sendDataInBackground
+                    }
+                }
+                break;
+            //------------------------------------------------------------------
+            case ST_PHYS_DISCONNECTED:
+            case ST_ENUM_SUSPENDED:
+            case ST_PHYS_CONNECTED_NOENUM_SUSP:
+                // LED 1 indicates the above 3 states
+                GPIO_setOutputHighOnPin(GPIO_PORT_P4, GPIO_PIN7);
+                __no_operation();
+                break;
+            //------------------------------------------------------------------
+            // The default is executed for the momentary state
+            // ST_ENUM_IN_PROGRESS.  Usually, this state only last a few
+            // seconds.  Be sure not to enter LPM3 in this state; USB
+            // communication is taking place here, and therefore the mode must
+            // be LPM0 or active-CPU.
+            case ST_ENUM_IN_PROGRESS:
+                GPIO_setOutputLowOnPin(GPIO_PORT_P4, GPIO_PIN7);
+                break;
+            default:
+                __no_operation();
         }
     }
 }
@@ -111,10 +158,16 @@ void __attribute__ ((interrupt(TIMER0_A0_VECTOR))) TIMER0_A0_ISR (void)
 #error Compiler not found!
 #endif
 {
-    // Blink LED to show that analog to digital conversion will take place
-    P1OUT ^= 0x01;
-    // Start ADC12, channel 0
-    flagAN0_start = TRUE;
+    // Start the ADC12 conversion at channel 0
+    //Reset the ENC bit to set the starting memory address and conversion mode
+    //sequence
+    HWREG8(ADC12_A_BASE + OFS_ADC12CTL0_L) &= ~(ADC12ENC);
+    //Reset the bits about to be set
+    HWREG16(ADC12_A_BASE +
+            OFS_ADC12CTL1) &= ~(ADC12CSTARTADD_15 + ADC12CONSEQ_3);
+    HWREG8(ADC12_A_BASE + OFS_ADC12CTL1_H) |= (ADC12_A_MEMORY_0 << 4);
+    HWREG8(ADC12_A_BASE + OFS_ADC12CTL1_L) |= ADC12_A_SINGLECHANNEL;
+    HWREG8(ADC12_A_BASE + OFS_ADC12CTL0_L) |= ADC12ENC + ADC12SC;
 }
 
 /*******************************************************************************
@@ -136,13 +189,12 @@ void __attribute__ ((interrupt(ADC12_VECTOR))) ADC12_ISR (void)
     case  4: break;   //Vector  4:  ADC timing overflow
     case  6:          //Vector  6:  ADC12IFG0
         // Warn that the reading is complete
-        P1OUT ^= 0x04;
+        analogBuffer0 = ADC12MEM0;
         flagAN0_ready = TRUE;
-
-        //Exit active CPU
-        //__bic_SR_register_on_exit(LPM0_bits);
         //Clear interrupt flag ADC12IFG0
         ADC12IFG &= 0xFFFE;
+        //Exit active CPU
+        //__bic_SR_register_on_exit(LPM0_bits);
         break;
     case  8: break;   //Vector  8:  ADC12IFG1
     case 10: break;   //Vector 10:  ADC12IFG2
