@@ -36,7 +36,7 @@
  *
  */
 #include <driverlib.h>
-#include <hwSpecificConfig.h>
+#include "hal.h"
 #include "USB_API/USB_Common/device.h"
 #include "USB_config/descriptors.h"
 

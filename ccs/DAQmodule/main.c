@@ -1,7 +1,51 @@
-#include <driverlib.h>
+/* --COPYRIGHT--,BSD
+ * Copyright (c) 2016, Texas Instruments Incorporated
+ * All rights reserved.
+ *
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions
+ * are met:
+ *
+ * *  Redistributions of source code must retain the above copyright
+ *    notice, this list of conditions and the following disclaimer.
+ *
+ * *  Redistributions in binary form must reproduce the above copyright
+ *    notice, this list of conditions and the following disclaimer in the
+ *    documentation and/or other materials provided with the distribution.
+ *
+ * *  Neither the name of Texas Instruments Incorporated nor the names of
+ *    its contributors may be used to endorse or promote products derived
+ *    from this software without specific prior written permission.
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+ * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO,
+ * THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR
+ * PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR
+ * CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL,
+ * EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO,
+ * PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS;
+ * OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY,
+ * WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR
+ * OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE,
+ * EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ * --/COPYRIGHT--*/
+/*  
+ * ======== main.c ========
+ * Efficient Sending Using USBCDC_sendDataInBackground Demo:
+ *
+ * The example shows how to implement efficient, high-bandwidth sending using 
+ * background operations.  It prompts for any key to be pressed, and when this 
+ * happens, the application sends a large amount of data to the host.  
+ *
+ * ----------------------------------------------------------------------------+
+ * Please refer to the Examples Guide for more details.
+ * ---------------------------------------------------------------------------*/
+
+#include "driverlib.h"
+
 #include "USB_config/descriptors.h"
 #include "USB_API/USB_Common/device.h"
-#include "USB_API/USB_Common/usb.h"
+#include "USB_API/USB_Common/usb.h"                 //USB-specific functions
 #include "USB_API/USB_CDC_API/UsbCdc.h"
 #include "USB_app/usbConstructs.h"
 
@@ -9,7 +53,25 @@
  * NOTE: Modify hal.h to select a specific evaluation board and customize for
  * your own board.
  */
-#include "hwSpecificConfig.h"
+#include "hal.h"
+
+/*******************************************************************************
+ * Global variables
+ */
+// Real-time clock (RTC) values
+// volatile uint8_t  hour = 0, min = 0, sec = 0;
+// Signalizes that the analog channel 0 reading has finished
+volatile uint8_t flagAN0_ready = FALSE;
+volatile uint8_t flagSentData  = FALSE;
+volatile uint8_t sendDataReturnValue = FALSE;
+// Stores the 12-bit value obtained from ADC12
+
+#define  TESTDATA_LENGTH    100
+uint8_t  testBuffer[TESTDATA_LENGTH];
+uint8_t  sendBuffer[2];
+uint16_t counter = 0;
+volatile uint16_t numNotSent = 0;
+volatile uint16_t analogBuffer0;
 
 /*******************************************************************************
  * Auxiliary function declarations
@@ -17,104 +79,112 @@
 void initRTC(void);
 
 /*******************************************************************************
- * Global variables
- */
-// Real-time clock (RTC) values
-volatile uint8_t  hour = 0, min = 0, sec = 0;
-// Signalizes that the analog channel 0 reading has finished
-volatile uint8_t  flagAN0_ready = FALSE;
-// Stores the 12-bit value obtained from ADC12
-volatile uint16_t analogBuffer0;
-
-/*******************************************************************************
  * Main loop
  */
-void main(void)
+void main (void)
 {
+    uint8_t ch;
     uint8_t flagUSB = 0;
-    //Stop watchdog timer
-    WDT_A_hold(WDT_A_BASE);
+    WDT_A_hold(WDT_A_BASE); //Stop watchdog timer
 
-    // Minimum Vcore setting required for the USB API is PMM_CORE_LEVEL_2
+    // Minumum Vcore setting required for the USB API is PMM_CORE_LEVEL_2 .
     PMM_setVCore(PMM_CORE_LEVEL_2);
-
-    // Configure GPIOs for low-power (output low)
-    USBHAL_initPorts();
-
-    // Configure clocks
-    // MCLK = 8MHz
-    // SMCLK = 4MHz
-    // ACLK = XT1 = FLL = 32768Hz
-    USBHAL_initClocks();
-    USBHAL_initADC12();
-    // Init USB & events; if a host is present, connect
-    USB_setup(TRUE,TRUE);
-
+    USBHAL_initPorts();           // Config GPIOS for low-power (output low)
+    USBHAL_initClocks();   // Config clocks. MCLK=SMCLK=FLL=8MHz; ACLK=REFO=32kHz
     initRTC();
 
-    __enable_interrupt();
-    while(1)
+    //Pre-fill the buffers with visible ASCII characters (0x21 to 0x7E)
+    ch = 0x21;
+    for (counter = TESTDATA_LENGTH; counter != 0; counter--)
     {
-        flagUSB = USB_getConnectionState();
-        switch(flagUSB)
-        {
-            case ST_ENUM_ACTIVE:
-                // Note: USB communication only works during either
-                //       active state or LPM0
-                GPIO_setOutputLowOnPin(GPIO_PORT_P4, GPIO_PIN7);
-                GPIO_setOutputHighOnPin(GPIO_PORT_P1, GPIO_PIN0);
-                __bis_SR_register(LPM0_bits + GIE);
-                __no_operation();
-                // Check if the analog value is ready to be sent
-                // flag is set by the ADC12 ISR
-                if(flagAN0_ready)
-                {
-                    // Reset the flag
-                    flagAN0_ready = FALSE;
-                    // Try to send the analog value through USB
-                    switch(USBCDC_sendDataInBackground((uint8_t *) &analogBuffer0, 2, CDC0_INTFNUM, 10))
-                    {
-                        case 0:
-                            // Success
-                            GPIO_setOutputLowOnPin(GPIO_PORT_P1, GPIO_PIN0);
-                            break;
-                        case 1:
-                            // Timeout
-                            __no_operation();
-                            break;
-                        case 2:
-                            // Bus is gone
-                            __no_operation();
-                            break;
-                        default:
-                            __no_operation();
-                            // Should not stop here.
-                            // There must be a bug in USBCDC_sendDataInBackground
-                    }
-                }
-                break;
-            //------------------------------------------------------------------
-            case ST_PHYS_DISCONNECTED:
-            case ST_ENUM_SUSPENDED:
-            case ST_PHYS_CONNECTED_NOENUM_SUSP:
-                // LED 1 indicates the above 3 states
-                GPIO_setOutputHighOnPin(GPIO_PORT_P4, GPIO_PIN7);
-                __no_operation();
-                break;
-            //------------------------------------------------------------------
-            // The default is executed for the momentary state
-            // ST_ENUM_IN_PROGRESS.  Usually, this state only last a few
-            // seconds.  Be sure not to enter LPM3 in this state; USB
-            // communication is taking place here, and therefore the mode must
-            // be LPM0 or active-CPU.
-            case ST_ENUM_IN_PROGRESS:
-                GPIO_setOutputLowOnPin(GPIO_PORT_P4, GPIO_PIN7);
-                break;
-            default:
-                __no_operation();
+        testBuffer[counter-1] = ch++;
+        if (ch == 0x7F){
+            ch = 0x21;
         }
     }
-}
+    counter = 0;
+
+    USBHAL_initADC12();
+    flagUSB = USB_setup(TRUE, TRUE); // Init USB & events; if a host is present, connect
+
+    __enable_interrupt();  // Enable interrupts globally
+    
+    while (1)
+    {
+        flagUSB = USB_getConnectionState();
+        if(flagAN0_ready)
+        {
+            // Note: USB communication only works during either
+            //       active state or LPM0
+            GPIO_setOutputLowOnPin(GPIO_PORT_P4, GPIO_PIN7);
+            GPIO_setOutputHighOnPin(GPIO_PORT_P1, GPIO_PIN0);
+        }
+        switch (flagUSB)
+        {
+        // This case is executed while your device is enumerated on the
+        // USB host
+        case ST_ENUM_ACTIVE:
+            // Check if the analog value is ready to be sent
+            // flag is set by the ADC12 ISR
+            if(flagAN0_ready)
+            {
+                // Reset the flag
+                flagAN0_ready = FALSE;
+
+                // Try to send the analog value through USB
+                sendBuffer[0] = testBuffer[counter];
+                counter = (counter + 1) % TESTDATA_LENGTH;
+                sendBuffer[1] = testBuffer[counter];
+                counter = (counter + 1) % TESTDATA_LENGTH;
+                sendDataReturnValue = USBCDC_sendDataInBackground((uint8_t *) &analogBuffer0, 2, CDC0_INTFNUM, 10);
+
+                if(sendDataReturnValue == 0)
+                {
+                    GPIO_setOutputLowOnPin(GPIO_PORT_P1, GPIO_PIN0);
+                    GPIO_setOutputLowOnPin(GPIO_PORT_P1, GPIO_PIN2);
+                    GPIO_setOutputLowOnPin(GPIO_PORT_P1, GPIO_PIN3);
+                }
+                else
+                {
+                    if(sendDataReturnValue == 2)
+                    {
+                        // Bus not available
+                        GPIO_setOutputHighOnPin(GPIO_PORT_P1, GPIO_PIN2);
+                    }
+                    else
+                    {
+                        // Another error
+                        GPIO_setOutputHighOnPin(GPIO_PORT_P1, GPIO_PIN3);
+                    }
+                    //Operation may still be open; cancel it
+                    USBCDC_abortSend((uint16_t *) &numNotSent, CDC0_INTFNUM);
+                }
+            }
+            break;
+        //------------------------------------------------------------------
+        // These cases are executed while your device is disconnected from
+        // the host (meaning, not enumerated); enumerated but suspended
+        // by the host, or connected to a powered hub without a USB host
+        // present.
+        case ST_PHYS_DISCONNECTED:
+        case ST_ENUM_SUSPENDED:
+        case ST_PHYS_CONNECTED_NOENUM_SUSP:
+            __bis_SR_register(LPM3_bits + GIE);
+            __no_operation();
+            break;
+
+        // The default is executed for the momentary state
+        // ST_ENUM_IN_PROGRESS.  Usually, this state only last a few
+        // seconds.  Be sure not to enter LPM3 in this state; USB
+        // communication is taking place here, and therefore the mode must
+        // be LPM0 or active-CPU.
+        case ST_ENUM_IN_PROGRESS:
+            __no_operation();
+        default:
+            __no_operation();;
+        }
+    }  //while(1)
+} //main()
 
 /*******************************************************************************
  * Starts a real-time clock on TimerA_0.
@@ -140,6 +210,7 @@ void initRTC(void)
     Timer_A_clearTimerInterrupt(TIMER_A0_BASE);
     Timer_A_startCounter(TIMER_A0_BASE, TIMER_A_UP_MODE);
 }
+
 
 /*******************************************************************************
  * Timer0 A0 interrupt service routine
@@ -231,29 +302,31 @@ void __attribute__ ((interrupt(UNMI_VECTOR))) UNMI_ISR (void)
 #error Compiler not found!
 #endif
 {
-    switch(__even_in_range(SYSUNIV, SYSUNIV_BUSIFG ))
+    switch (__even_in_range(SYSUNIV, SYSUNIV_BUSIFG ))
     {
-    case SYSUNIV_NONE:
-        __no_operation();
-        break;
-    case SYSUNIV_NMIIFG:
-        __no_operation();
-        break;
-    case SYSUNIV_OFIFG:
-        UCS_clearFaultFlag(UCS_XT2OFFG);
-        UCS_clearFaultFlag(UCS_DCOFFG);
-        SFR_clearInterrupt(SFR_OSCILLATOR_FAULT_INTERRUPT);
-        break;
-    case SYSUNIV_ACCVIFG:
-        __no_operation();
-        break;
-    case SYSUNIV_BUSIFG:
-        // If the CPU accesses USB memory while the USB module is
-        // suspended, a "bus error" can occur.  This generates an NMI.  If
-        // USB is automatically disconnecting in your software, set a
-        // breakpoint here and see if execution hits it.  See the
-        // Programmer's Guide for more information.
-        SYSBERRIV = 0;  // Clear bus error flag
-        USB_disable();  // Disable
+        case SYSUNIV_NONE:
+            __no_operation();
+            break;
+        case SYSUNIV_NMIIFG:
+            __no_operation();
+            break;
+        case SYSUNIV_OFIFG:
+            UCS_clearFaultFlag(UCS_XT2OFFG);
+            UCS_clearFaultFlag(UCS_DCOFFG);
+            SFR_clearInterrupt(SFR_OSCILLATOR_FAULT_INTERRUPT);
+            break;
+        case SYSUNIV_ACCVIFG:
+            __no_operation();
+            break;
+        case SYSUNIV_BUSIFG:
+            // If the CPU accesses USB memory while the USB module is
+            // suspended, a "bus error" can occur.  This generates an NMI.  If
+            // USB is automatically disconnecting in your software, set a
+            // breakpoint here and see if execution hits it.  See the
+            // Programmer's Guide for more information.
+            SYSBERRIV = 0; //clear bus error flag
+            USB_disable(); //Disable
     }
 }
+
+//Released_Version_5_20_06_02
