@@ -116,8 +116,8 @@ void main (void)
         {
             // Note: USB communication only works during either
             //       active state or LPM0
-            GPIO_setOutputLowOnPin(GPIO_PORT_P4, GPIO_PIN7);
-            GPIO_setOutputHighOnPin(GPIO_PORT_P1, GPIO_PIN0);
+            GPIO_setOutputLowOnPin(GPIO_PORT_P1, GPIO_PIN0);
+            GPIO_setOutputHighOnPin(GPIO_PORT_P4, GPIO_PIN7);
         }
         switch (flagUSB)
         {
@@ -133,28 +133,24 @@ void main (void)
 
                 // Try to send the analog value through USB
                 sendBuffer[0] = testBuffer[counter];
-                counter = (counter + 1) % TESTDATA_LENGTH;
                 sendBuffer[1] = testBuffer[counter];
-                counter = (counter + 1) % TESTDATA_LENGTH;
-                sendDataReturnValue = USBCDC_sendDataInBackground((uint8_t *) &analogBuffer0, 2, CDC0_INTFNUM, 10);
+                sendDataReturnValue = USBCDC_sendDataInBackground((uint8_t *) sendBuffer, 2, CDC0_INTFNUM, 10);
 
                 if(sendDataReturnValue == 0)
                 {
-                    GPIO_setOutputLowOnPin(GPIO_PORT_P1, GPIO_PIN0);
-                    GPIO_setOutputLowOnPin(GPIO_PORT_P1, GPIO_PIN2);
-                    GPIO_setOutputLowOnPin(GPIO_PORT_P1, GPIO_PIN3);
+                    GPIO_setOutputLowOnPin(GPIO_PORT_P4, GPIO_PIN7);
                 }
                 else
                 {
                     if(sendDataReturnValue == 2)
                     {
                         // Bus not available
-                        GPIO_setOutputHighOnPin(GPIO_PORT_P1, GPIO_PIN2);
+                        GPIO_setOutputHighOnPin(GPIO_PORT_P1, GPIO_PIN0);
                     }
                     else
                     {
                         // Another error
-                        GPIO_setOutputHighOnPin(GPIO_PORT_P1, GPIO_PIN3);
+                        GPIO_setOutputHighOnPin(GPIO_PORT_P1, GPIO_PIN0);
                     }
                     //Operation may still be open; cancel it
                     USBCDC_abortSend((uint16_t *) &numNotSent, CDC0_INTFNUM);
@@ -253,12 +249,12 @@ void __attribute__ ((interrupt(ADC12_VECTOR))) ADC12_ISR (void)
 #error Compiler not found!
 #endif
 {
-    switch (__even_in_range(ADC12IV,34))
+    switch (__even_in_range(ADC12IV, 0x24))
     {
-    case  0: break;   //Vector  0:  No interrupt
-    case  2: break;   //Vector  2:  ADC overflow
-    case  4: break;   //Vector  4:  ADC timing overflow
-    case  6:          //Vector  6:  ADC12IFG0
+    case 0x00: break;   //Vector  0:  No interrupt
+    case 0x02: break;   //Vector  2:  ADC overflow
+    case 0x04: break;   //Vector  4:  ADC timing overflow
+    case 0x06:          //Vector  6:  ADC12IFG0
         // Warn that the reading is complete
         analogBuffer0 = ADC12MEM0;
         flagAN0_ready = TRUE;
@@ -267,23 +263,68 @@ void __attribute__ ((interrupt(ADC12_VECTOR))) ADC12_ISR (void)
         //Exit active CPU
         //__bic_SR_register_on_exit(LPM0_bits);
         break;
-    case  8: break;   //Vector  8:  ADC12IFG1
-    case 10: break;   //Vector 10:  ADC12IFG2
-    case 12: break;   //Vector 12:  ADC12IFG3
-    case 14: break;   //Vector 14:  ADC12IFG4
-    case 16: break;   //Vector 16:  ADC12IFG5
-    case 18: break;   //Vector 18:  ADC12IFG6
-    case 20: break;   //Vector 20:  ADC12IFG7
-    case 22: break;   //Vector 22:  ADC12IFG8
-    case 24: break;   //Vector 24:  ADC12IFG9
-    case 26: break;   //Vector 26:  ADC12IFG10
-    case 28: break;   //Vector 28:  ADC12IFG11
-    case 30: break;   //Vector 30:  ADC12IFG12
-    case 32: break;   //Vector 32:  ADC12IFG13
-    case 34: break;   //Vector 34:  ADC12IFG14
+    case 0x08: break;   //Vector  8:  ADC12IFG1
+    case 0x0A: break;   //Vector 10:  ADC12IFG2
+    case 0x0C: break;   //Vector 12:  ADC12IFG3
+    case 0x0E: break;   //Vector 14:  ADC12IFG4
+    case 0x10: break;   //Vector 16:  ADC12IFG5
+    case 0x12: break;   //Vector 18:  ADC12IFG6
+    case 0x14: break;   //Vector 20:  ADC12IFG7
+    case 0x16: break;   //Vector 22:  ADC12IFG8
+    case 0x18: break;   //Vector 24:  ADC12IFG9
+    case 0x1A: break;   //Vector 26:  ADC12IFG10
+    case 0x1C: break;   //Vector 28:  ADC12IFG11
+    case 0x1E: break;   //Vector 30:  ADC12IFG12
+    case 0x20: break;   //Vector 32:  ADC12IFG13
+    case 0x22: break;   //Vector 34:  ADC12IFG14
+    case 0x24: break;   //Vector 36:  ADC12IFG15
     default:
         _never_executed();
     }
+}
+
+/*******************************************************************************
+ * PORT1 ISR for encoder
+ */
+#if defined(__TI_COMPILER_VERSION__) || defined(__IAR_SYSTEMS_ICC__)
+#pragma vector=PORT1_VECTOR
+__interrupt
+#elif defined(__GNUC__)
+__attribute__((interrupt(PORT1_VECTOR)))
+#endif
+void port1_ISR (void)
+{
+    switch (__even_in_range(P1IV, 0x10))
+    {
+    case 0x00: break;   //Vector  0:  No interrupt
+    case 0x02: break;   //Vector  2:  Pin 1.0
+    case 0x04: break;   //Vector  4:  Pin 1.1
+    case 0x06:          //Vector  6:  Pin 1.2
+        // Increase counter
+        counter++;
+        if(counter == TESTDATA_LENGTH)
+        {
+            counter = 0;
+        }
+
+        // Clear P1.2 interrupt
+        P1IFG &= 0xFB;
+
+        // Toggle 4.7
+        P4OUT ^= 0x80;
+
+        //Exit active CPU
+        __bic_SR_register_on_exit(LPM0_bits);
+        break;
+    case 0x08: break;   //Vector  8:  Pin 1.3
+    case 0x0A: break;   //Vector 10:  Pin 1.4
+    case 0x0C: break;   //Vector 12:  Pin 1.5
+    case 0x0E: break;   //Vector 14:  Pin 1.6
+    case 0x10: break;   //Vector 16:  Pin 1.7
+    default:
+        _never_executed();
+    }
+    // Based on the current configuration, change counter
 }
 
 /*******************************************************************************

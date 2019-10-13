@@ -19,7 +19,7 @@
 // #pragma vector=ADC12_VECTOR
 #pragma vector=COMP_B_VECTOR
 #pragma vector=DMA_VECTOR
-#pragma vector=PORT1_VECTOR
+//#pragma vector=PORT1_VECTOR
 #pragma vector=PORT2_VECTOR
 #pragma vector=RTC_VECTOR
 #pragma vector=SYSNMI_VECTOR
