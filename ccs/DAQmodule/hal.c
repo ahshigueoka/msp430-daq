@@ -53,55 +53,18 @@
 */
 void USBHAL_initPorts(void)
 {
-#ifdef __MSP430_HAS_PORT1_R__
-    GPIO_setOutputLowOnPin(GPIO_PORT_P1, GPIO_ALL);
-    GPIO_setAsOutputPin(GPIO_PORT_P1, GPIO_ALL);
-#endif
+    PADIR = 0xFF;
+    PAOUT = 0x00;
+    PBDIR = 0xFF;
+    PBOUT = 0x00;
+    PCDIR = 0xFF;
+    PCOUT = 0x00;
+    PDDIR = 0xFF;
+    PDOUT = 0x00;
 
-#ifdef __MSP430_HAS_PORT2_R__
-    GPIO_setOutputLowOnPin(GPIO_PORT_P2, GPIO_ALL);
-    GPIO_setAsOutputPin(GPIO_PORT_P2, GPIO_ALL);
-#endif
+    PJDIR = 0x0F;
+    PJOUT = 0x00;
 
-#ifdef __MSP430_HAS_PORT3_R__
-    GPIO_setOutputLowOnPin(GPIO_PORT_P3, GPIO_ALL);
-    GPIO_setAsOutputPin(GPIO_PORT_P3, GPIO_ALL);
-#endif
-
-#ifdef __MSP430_HAS_PORT4_R__
-    GPIO_setOutputLowOnPin(GPIO_PORT_P4, GPIO_ALL);
-    GPIO_setAsOutputPin(GPIO_PORT_P4, GPIO_ALL);
-#endif
-
-#ifdef __MSP430_HAS_PORT5_R__
-    GPIO_setOutputLowOnPin(GPIO_PORT_P5, GPIO_ALL);
-    GPIO_setAsOutputPin(GPIO_PORT_P5, GPIO_ALL);
-#endif
-
-#ifdef __MSP430_HAS_PORT6_R__
-    GPIO_setOutputLowOnPin(GPIO_PORT_P6, GPIO_ALL);
-    GPIO_setAsOutputPin(GPIO_PORT_P6, GPIO_ALL);
-#endif
-
-#ifdef __MSP430_HAS_PORT7_R__
-    GPIO_setOutputLowOnPin(GPIO_PORT_P7, GPIO_ALL);
-    GPIO_setAsOutputPin(GPIO_PORT_P7, GPIO_ALL);
-#endif
-
-#ifdef __MSP430_HAS_PORT8_R__
-    GPIO_setOutputLowOnPin(GPIO_PORT_P8, GPIO_ALL);
-    GPIO_setAsOutputPin(GPIO_PORT_P8, GPIO_ALL);
-#endif
-
-#ifdef __MSP430_HAS_PORT9_R__
-    GPIO_setOutputLowOnPin(GPIO_PORT_P9, GPIO_ALL);
-    GPIO_setAsOutputPin(GPIO_PORT_P9, GPIO_ALL);
-#endif
-
-#ifdef __MSP430_HAS_PORTJ_R__
-    GPIO_setOutputLowOnPin(GPIO_PORT_PJ, GPIO_ALL);
-    GPIO_setAsOutputPin(GPIO_PORT_PJ, GPIO_ALL);
-#endif
     // Configure pins according to necessity
     // Configure the ADC12 input pin
     //P6.0 ADC12 Channel 0
@@ -165,11 +128,6 @@ void USBHAL_initClocks()
     UCS_turnOnLFXT1(UCS_XT1_DRIVE_3, UCS_XCAP_3);
     UCS_turnOnXT2(UCS_XT2_DRIVE_4MHZ_8MHZ);
 
-    // Verify if the default clock settings are as expected
-    myACLK  = UCS_getACLK();
-    mySMCLK = UCS_getSMCLK();
-    myMCLK  = UCS_getMCLK();
-
     // Setup ACLK to use XT1 as oscillator source
     UCS_initClockSignal(UCS_ACLK, UCS_XT1CLK_SELECT, UCS_CLOCK_DIVIDER_1);
 
@@ -177,14 +135,9 @@ void USBHAL_initClocks()
     UCS_initClockSignal(UCS_FLLREF, UCS_XT1CLK_SELECT, UCS_CLOCK_DIVIDER_1);
 
     // Configure the FLL's frequency and set MCLK & SMCLK to use the FLL
-    UCS_initFLLSettle(MCLK_FREQ_HZ, MCLK_FLLREF_RATIO);
+    UCS_initFLLSettle(MCLK_FREQ_HZ/1000, MCLK_FLLREF_RATIO);
 
     UCS_initClockSignal(UCS_SMCLK, UCS_XT2CLK_SELECT, UCS_CLOCK_DIVIDER_1);
-
-    // Verify that the modified clock settings are as expected
-    myACLK  = UCS_getACLK();
-    mySMCLK = UCS_getSMCLK();
-    myMCLK  = UCS_getMCLK();
 }
 
 /*******************************************************************************

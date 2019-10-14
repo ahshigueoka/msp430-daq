@@ -93,7 +93,7 @@ void main (void)
     initRTC();
 
     // Initialize the encoder state according to the current reading
-    encoder0state = 0x30 & P1IN;
+    encoder0state = 0x0C & P1IN;
 
     USBHAL_initADC12();
     flagUSB = USB_setup(TRUE, TRUE); // Init USB & events; if a host is present, connect
@@ -291,49 +291,9 @@ void port1_ISR (void)
     case 0x06:          //Vector  6:  Pin 1.2
         // Either going from
         //   BA    BA
-        //   00 to 01 or
-        //   10 to 11
-        if(encoder0state & 0x20)
-        {
-            // From 10 to 11
-            (dataVar.encoder0position)--;
-            dataVar.encoder0step = -1;
-        }
-        else
-        {
-            // From 00 to 01
-            (dataVar.encoder0position)++;
-            dataVar.encoder0step = 1;
-        }
-        //Exit active CPU
-        __bic_SR_register_on_exit(LPM0_bits);
-        break;
-    case 0x08:          //Vector  8:  Pin 1.3
-        // Either going from
-        //   BA    BA
-        //   00 to 10 or
-        //   01 to 11
-        if(encoder0state & 0x10)
-        {
-            // From 01 to 11
-            (dataVar.encoder0position)++;
-            dataVar.encoder0step = 1;
-        }
-        else
-        {
-            // From 00 to 10
-            (dataVar.encoder0position)--;
-            dataVar.encoder0step = -1;
-        }
-        //Exit active CPU
-        __bic_SR_register_on_exit(LPM0_bits);
-        break;
-    case 0x0A:          //Vector 10:  Pin 1.4
-        // Either going from
-        //   BA    BA
         //   01 to 00 or
         //   11 to 10
-        if(encoder0state & 0x20)
+        if(encoder0state & 0x08)
         {
             // From 11 to 10
             (dataVar.encoder0position)++;
@@ -348,12 +308,12 @@ void port1_ISR (void)
         //Exit active CPU
         __bic_SR_register_on_exit(LPM0_bits);
         break;
-    case 0x0C:          //Vector 12:  Pin 1.5
+    case 0x08:          //Vector  8:  Pin 1.3
         // Either going from
         //   BA    BA
         //   10 to 00 or
         //   11 to 01
-        if(encoder0state & 0x10)
+        if(encoder0state & 0x04)
         {
             // From 11 to 01
             (dataVar.encoder0position)--;
@@ -362,8 +322,48 @@ void port1_ISR (void)
         else
         {
             // From 10 to 00
+            (dataVar.encoder0position)--;
+            dataVar.encoder0step = 1;
+        }
+        //Exit active CPU
+        __bic_SR_register_on_exit(LPM0_bits);
+        break;
+    case 0x0A:          //Vector 10:  Pin 1.4
+        // Either going from
+        //   BA    BA
+        //   00 to 01 or
+        //   10 to 11
+        if(encoder0state & 0x08)
+        {
+            // From 10 to 11
+            (dataVar.encoder0position)--;
+            dataVar.encoder0step = -1;
+        }
+        else
+        {
+            // From 00 to 01
             (dataVar.encoder0position)++;
             dataVar.encoder0step = 1;
+        }
+        //Exit active CPU
+        __bic_SR_register_on_exit(LPM0_bits);
+        break;
+    case 0x0C:          //Vector 12:  Pin 1.5
+        // Either going from
+        //   BA    BA
+        //   01 to 11 or
+        //   00 to 10
+        if(encoder0state & 0x04)
+        {
+            // From 01 to 11
+            (dataVar.encoder0position)++;
+            dataVar.encoder0step = 1;
+        }
+        else
+        {
+            // From 00 to 10
+            (dataVar.encoder0position)--;
+            dataVar.encoder0step = -1;
         }
         //Exit active CPU
         __bic_SR_register_on_exit(LPM0_bits);
@@ -373,7 +373,8 @@ void port1_ISR (void)
     default:
         _never_executed();
     }
-    // Based on the current configuration, change counter
+    // Update current encoder state
+    encoder0state = 0x0C & P1IN;
 }
 
 /*******************************************************************************

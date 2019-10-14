@@ -58,11 +58,6 @@ typedef struct
 // Size of type DAQ_dataPacket, in bytes
 extern const uint8_t SIZE_DAQ_DATAPACKET;
 
-//-----------------------------------------------------------------------------
-static uint32_t myACLK  = 0;
-static uint32_t mySMCLK = 0;
-static uint32_t myMCLK  = 0;
-
 #ifndef DEPRECATED
 #define   initPorts       USBHAL_initPorts
 #define   initClocks      USBHAL_initClocks
