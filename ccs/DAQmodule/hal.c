@@ -107,19 +107,22 @@ void USBHAL_initPorts(void)
     //P6.0 ADC12 Channel 0
     GPIO_setAsPeripheralModuleFunctionInputPin(GPIO_PORT_P6, GPIO_PIN0);
 
-    // Configure the external pin interrupts
-    GPIO_setAsInputPinWithPullUpResistor(GPIO_PORT_P1, GPIO_PIN2);
+    // Configure the external pin interrupts P1.2, P1.3, P1.4, P1.5
+    // For encoder
+    GPIO_setAsInputPinWithPullUpResistor(GPIO_PORT_P1,
+                                         GPIO_PIN2 | GPIO_PIN3 | GPIO_PIN4 | GPIO_PIN5);
 
-    //P1.2 interrupt is activated in a high to low transition
-    P1IES = 0x04;
+    //P1.2, P1.3, P1.4, P1.5 interrupts are activated in a high to low transition
+    P1IES = 0x3C;
 
-    // Enable pin interrupt only on P1.2
-    P1IE = 0x04;
+    // Enable pin interrupt on P1.2, P1.3, P1.4, P1.5
+    P1IE = 0x3C;
     P2IE = 0x00;
 
     // Clear vector of pin interrupt flags
     P1IFG = 0x00;
     P2IFG = 0x00;
+
 }
 
 /*******************************************************************************

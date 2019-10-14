@@ -49,7 +49,7 @@
 #include "../USB_MSC_API/UsbMscScsi.h"
 #include "../USB_MSC_API/UsbMsc.h"
 #include <descriptors.h>
-#include <hwSpecificConfig.h>
+#include <hal.h>
 #include <string.h>
 
 #ifdef _MSC_

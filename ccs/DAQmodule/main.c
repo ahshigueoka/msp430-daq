@@ -58,20 +58,20 @@
 /*******************************************************************************
  * Global variables
  */
+// Variables from other files
+const uint8_t SIZE_DAQ_DATAPACKET = sizeof(DAQ_dataPacket);
+
 // Real-time clock (RTC) values
 // volatile uint8_t  hour = 0, min = 0, sec = 0;
 // Signalizes that the analog channel 0 reading has finished
+// Flag variables
 volatile uint8_t flagAN0_ready = FALSE;
 volatile uint8_t flagSentData  = FALSE;
 volatile uint8_t sendDataReturnValue = FALSE;
-// Stores the 12-bit value obtained from ADC12
+volatile uint8_t encoder0state = 0x00;
 
-#define  TESTDATA_LENGTH    100
-uint8_t  testBuffer[TESTDATA_LENGTH];
-uint8_t  sendBuffer[2];
-uint16_t counter = 0;
 volatile uint16_t numNotSent = 0;
-volatile uint16_t analogBuffer0;
+volatile DAQ_dataPacket dataVar;
 
 /*******************************************************************************
  * Auxiliary function declarations
@@ -83,7 +83,6 @@ void initRTC(void);
  */
 void main (void)
 {
-    uint8_t ch;
     uint8_t flagUSB = 0;
     WDT_A_hold(WDT_A_BASE); //Stop watchdog timer
 
@@ -93,16 +92,8 @@ void main (void)
     USBHAL_initClocks();   // Config clocks. MCLK=SMCLK=FLL=8MHz; ACLK=REFO=32kHz
     initRTC();
 
-    //Pre-fill the buffers with visible ASCII characters (0x21 to 0x7E)
-    ch = 0x21;
-    for (counter = TESTDATA_LENGTH; counter != 0; counter--)
-    {
-        testBuffer[counter-1] = ch++;
-        if (ch == 0x7F){
-            ch = 0x21;
-        }
-    }
-    counter = 0;
+    // Initialize the encoder state according to the current reading
+    encoder0state = 0x30 & P1IN;
 
     USBHAL_initADC12();
     flagUSB = USB_setup(TRUE, TRUE); // Init USB & events; if a host is present, connect
@@ -131,10 +122,8 @@ void main (void)
                 // Reset the flag
                 flagAN0_ready = FALSE;
 
-                // Try to send the analog value through USB
-                sendBuffer[0] = testBuffer[counter];
-                sendBuffer[1] = testBuffer[counter];
-                sendDataReturnValue = USBCDC_sendDataInBackground((uint8_t *) sendBuffer, 2, CDC0_INTFNUM, 10);
+                // Try to send the current state through USB
+                sendDataReturnValue = USBCDC_sendDataInBackground((uint8_t *) &dataVar, SIZE_DAQ_DATAPACKET, CDC0_INTFNUM, 10);
 
                 if(sendDataReturnValue == 0)
                 {
@@ -256,7 +245,7 @@ void __attribute__ ((interrupt(ADC12_VECTOR))) ADC12_ISR (void)
     case 0x04: break;   //Vector  4:  ADC timing overflow
     case 0x06:          //Vector  6:  ADC12IFG0
         // Warn that the reading is complete
-        analogBuffer0 = ADC12MEM0;
+        dataVar.analog0 = ADC12MEM0;
         flagAN0_ready = TRUE;
         //Clear interrupt flag ADC12IFG0
         ADC12IFG &= 0xFFFE;
@@ -300,25 +289,85 @@ void port1_ISR (void)
     case 0x02: break;   //Vector  2:  Pin 1.0
     case 0x04: break;   //Vector  4:  Pin 1.1
     case 0x06:          //Vector  6:  Pin 1.2
-        // Increase counter
-        counter++;
-        if(counter == TESTDATA_LENGTH)
+        // Either going from
+        //   BA    BA
+        //   00 to 01 or
+        //   10 to 11
+        if(encoder0state & 0x20)
         {
-            counter = 0;
+            // From 10 to 11
+            (dataVar.encoder0position)--;
+            dataVar.encoder0step = -1;
         }
-
-        // Clear P1.2 interrupt
-        P1IFG &= 0xFB;
-
-        // Toggle 4.7
-        P4OUT ^= 0x80;
-
+        else
+        {
+            // From 00 to 01
+            (dataVar.encoder0position)++;
+            dataVar.encoder0step = 1;
+        }
         //Exit active CPU
         __bic_SR_register_on_exit(LPM0_bits);
         break;
-    case 0x08: break;   //Vector  8:  Pin 1.3
-    case 0x0A: break;   //Vector 10:  Pin 1.4
-    case 0x0C: break;   //Vector 12:  Pin 1.5
+    case 0x08:          //Vector  8:  Pin 1.3
+        // Either going from
+        //   BA    BA
+        //   00 to 10 or
+        //   01 to 11
+        if(encoder0state & 0x10)
+        {
+            // From 01 to 11
+            (dataVar.encoder0position)++;
+            dataVar.encoder0step = 1;
+        }
+        else
+        {
+            // From 00 to 10
+            (dataVar.encoder0position)--;
+            dataVar.encoder0step = -1;
+        }
+        //Exit active CPU
+        __bic_SR_register_on_exit(LPM0_bits);
+        break;
+    case 0x0A:          //Vector 10:  Pin 1.4
+        // Either going from
+        //   BA    BA
+        //   01 to 00 or
+        //   11 to 10
+        if(encoder0state & 0x20)
+        {
+            // From 11 to 10
+            (dataVar.encoder0position)++;
+            dataVar.encoder0step = 1;
+        }
+        else
+        {
+            // From 01 to 00
+            (dataVar.encoder0position)--;
+            dataVar.encoder0step = -1;
+        }
+        //Exit active CPU
+        __bic_SR_register_on_exit(LPM0_bits);
+        break;
+    case 0x0C:          //Vector 12:  Pin 1.5
+        // Either going from
+        //   BA    BA
+        //   10 to 00 or
+        //   11 to 01
+        if(encoder0state & 0x10)
+        {
+            // From 11 to 01
+            (dataVar.encoder0position)--;
+            dataVar.encoder0step = -1;
+        }
+        else
+        {
+            // From 10 to 00
+            (dataVar.encoder0position)++;
+            dataVar.encoder0step = 1;
+        }
+        //Exit active CPU
+        __bic_SR_register_on_exit(LPM0_bits);
+        break;
     case 0x0E: break;   //Vector 14:  Pin 1.6
     case 0x10: break;   //Vector 16:  Pin 1.7
     default:

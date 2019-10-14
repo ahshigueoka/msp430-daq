@@ -46,6 +46,18 @@
 #define MCLK_FREQ_HZ 8000000
 #define MCLK_FLLREF_RATIO (MCLK_FREQ_HZ / XT1_FREQ_HZ)
 
+/*******************************************************************************
+ * User-defined types
+ */
+typedef struct
+{
+    uint16_t analog0;
+    int16_t  encoder0position;
+    int8_t   encoder0step;
+} DAQ_dataPacket;
+// Size of type DAQ_dataPacket, in bytes
+extern const uint8_t SIZE_DAQ_DATAPACKET;
+
 //-----------------------------------------------------------------------------
 static uint32_t myACLK  = 0;
 static uint32_t mySMCLK = 0;
