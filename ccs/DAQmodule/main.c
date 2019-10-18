@@ -93,10 +93,13 @@ void main (void)
     initRTC();
 
     // Initialize the encoder state according to the current reading
-    encoder0state = 0x0C & P1IN;
+    encoder0state = 0x3C & P1IN;
 
     USBHAL_initADC12();
     flagUSB = USB_setup(TRUE, TRUE); // Init USB & events; if a host is present, connect
+
+    // Character used to signalize the end of data frame is a LN (line feed)
+    dataVar.endOfTransmission = 0xFFFF;
 
     __enable_interrupt();  // Enable interrupts globally
     
@@ -166,7 +169,7 @@ void main (void)
         case ST_ENUM_IN_PROGRESS:
             __no_operation();
         default:
-            __no_operation();;
+            __no_operation();
         }
     }  //while(1)
 } //main()
@@ -185,7 +188,7 @@ void initRTC(void)
     Timer_A_initUpModeParam initUpMode = {0};
     initUpMode.clockSource = TIMER_A_CLOCKSOURCE_ACLK;
     initUpMode.clockSourceDivider = TIMER_A_CLOCKSOURCE_DIVIDER_1;
-    initUpMode.timerPeriod = 0x8000;
+    initUpMode.timerPeriod = 0x0800;
     initUpMode.captureCompareInterruptEnable_CCR0_CCIE = TIMER_A_CCIE_CCR0_INTERRUPT_ENABLE;
     initUpMode.timerInterruptEnable_TAIE = TIMER_A_TAIE_INTERRUPT_DISABLE;
     initUpMode.timerClear = TIMER_A_DO_CLEAR;
