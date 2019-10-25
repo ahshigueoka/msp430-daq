@@ -58,31 +58,36 @@
 /*******************************************************************************
  * Global variables
  */
-// Variables from other files
-const uint8_t SIZE_DAQ_DATAPACKET = sizeof(DAQ_dataPacket);
+
+// Constants
+#define SIZE_BUFFER_SERIAL 16
+#define ADC12_CH0 0x01
 
 // Real-time clock (RTC) values
 // volatile uint8_t  hour = 0, min = 0, sec = 0;
-// Signalizes that the analog channel 0 reading has finished
-// Flag variables
-volatile uint8_t flagAN0_ready = FALSE;
-volatile uint8_t flagSentData  = FALSE;
-volatile uint8_t sendDataReturnValue = FALSE;
-volatile uint8_t encoder0state = 0x00;
-
+volatile uint8_t  headerByte = 0x00;
+volatile uint16_t analog0    = 0;
+volatile int16_t  encoder0position = 0;
+volatile int8_t   encoder0step = 0;
+volatile uint8_t  encoder0state = 0;
 volatile uint16_t numNotSent = 0;
-volatile DAQ_dataPacket dataVar;
+
+uint8_t  bufferSerial[SIZE_BUFFER_SERIAL];
 
 /*******************************************************************************
  * Auxiliary function declarations
  */
 void initRTC(void);
+void writeToBufferSerial3(uint8_t * const bufferOut, uint16_t valueIn, uint8_t header);
+void writeToBufferSerial4(uint8_t * const bufferOut, uint32_t valueIn, uint8_t header);
 
 /*******************************************************************************
  * Main loop
  */
 void main (void)
 {
+    uint8_t sendDataReturnValue;
+    uint8_t numBytes = 0;
     uint8_t flagUSB = 0;
     WDT_A_hold(WDT_A_BASE); //Stop watchdog timer
 
@@ -98,15 +103,12 @@ void main (void)
     USBHAL_initADC12();
     flagUSB = USB_setup(TRUE, TRUE); // Init USB & events; if a host is present, connect
 
-    // Character used to signalize the end of data frame is a LN (line feed)
-    dataVar.endOfTransmission = 0xFFFF;
-
     __enable_interrupt();  // Enable interrupts globally
     
     while (1)
     {
         flagUSB = USB_getConnectionState();
-        if(flagAN0_ready)
+        if(headerByte)
         {
             // Note: USB communication only works during either
             //       active state or LPM0
@@ -118,15 +120,25 @@ void main (void)
         // This case is executed while your device is enumerated on the
         // USB host
         case ST_ENUM_ACTIVE:
-            // Check if the analog value is ready to be sent
-            // flag is set by the ADC12 ISR
-            if(flagAN0_ready)
+            // Check if there is some data to be sent
+            if(headerByte)
             {
-                // Reset the flag
-                flagAN0_ready = FALSE;
+                //The number of bytes to send depend on the measurement type
+                // TODO change analog0 to the type of variable to be used,
+                //      according to headerByte
+                if(0x40 & headerByte)
+                {
+                    writeToBufferSerial4(bufferSerial, analog0, headerByte);
+                    numBytes = 4;
+                }
+                else
+                {
+                    writeToBufferSerial3(bufferSerial, analog0, headerByte);
+                    numBytes = 3;
+                }
 
                 // Try to send the current state through USB
-                sendDataReturnValue = USBCDC_sendDataInBackground((uint8_t *) &dataVar, SIZE_DAQ_DATAPACKET, CDC0_INTFNUM, 10);
+                sendDataReturnValue = USBCDC_sendDataInBackground((uint8_t *) bufferSerial, numBytes, CDC0_INTFNUM, 10);
 
                 if(sendDataReturnValue == 0)
                 {
@@ -147,6 +159,8 @@ void main (void)
                     //Operation may still be open; cancel it
                     USBCDC_abortSend((uint16_t *) &numNotSent, CDC0_INTFNUM);
                 }
+                // Reset the flag
+                headerByte = 0x00;
             }
             break;
         //------------------------------------------------------------------
@@ -188,7 +202,7 @@ void initRTC(void)
     Timer_A_initUpModeParam initUpMode = {0};
     initUpMode.clockSource = TIMER_A_CLOCKSOURCE_ACLK;
     initUpMode.clockSourceDivider = TIMER_A_CLOCKSOURCE_DIVIDER_1;
-    initUpMode.timerPeriod = 0x0800;
+    initUpMode.timerPeriod = 0x1000;
     initUpMode.captureCompareInterruptEnable_CCR0_CCIE = TIMER_A_CCIE_CCR0_INTERRUPT_ENABLE;
     initUpMode.timerInterruptEnable_TAIE = TIMER_A_TAIE_INTERRUPT_DISABLE;
     initUpMode.timerClear = TIMER_A_DO_CLEAR;
@@ -197,6 +211,33 @@ void initRTC(void)
     Timer_A_initUpMode(TIMER_A0_BASE, &initUpMode);
     Timer_A_clearTimerInterrupt(TIMER_A0_BASE);
     Timer_A_startCounter(TIMER_A0_BASE, TIMER_A_UP_MODE);
+}
+
+/*******************************************************************************
+ * Write data to the output buffer following the data protocol
+ */
+void writeToBufferSerial3(uint8_t * const bufferOut, uint16_t  valueIn, uint8_t header)
+{
+    uint8_t j = 2;
+
+    bufferOut[0] = header;
+    while(j > 0)
+    {
+        bufferOut[j--] = 0x7F & valueIn;
+        valueIn >>= 7;
+    }
+}
+
+void writeToBufferSerial4(uint8_t * const bufferOut, uint32_t valueIn, uint8_t header)
+{
+    uint8_t j = 3;
+
+    bufferOut[0] = header;
+    while(j > 0)
+    {
+        bufferOut[j--] = 0x7F & valueIn;
+        valueIn >>= 7;
+    }
 }
 
 
@@ -247,11 +288,15 @@ void __attribute__ ((interrupt(ADC12_VECTOR))) ADC12_ISR (void)
     case 0x02: break;   //Vector  2:  ADC overflow
     case 0x04: break;   //Vector  4:  ADC timing overflow
     case 0x06:          //Vector  6:  ADC12IFG0
-        // Warn that the reading is complete
-        dataVar.analog0 = ADC12MEM0;
-        flagAN0_ready = TRUE;
+        // Acquire the sampled data
+        analog0 = ADC12MEM0;
+
         //Clear interrupt flag ADC12IFG0
         ADC12IFG &= 0xFFFE;
+
+        // Warn that the reading is complete
+        headerByte = 0x80 | ADC12_CH0;
+
         //Exit active CPU
         //__bic_SR_register_on_exit(LPM0_bits);
         break;
@@ -299,14 +344,14 @@ void port1_ISR (void)
         if(encoder0state & 0x08)
         {
             // From 11 to 10
-            (dataVar.encoder0position)++;
-            dataVar.encoder0step = 1;
+            encoder0position++;
+            encoder0step = 1;
         }
         else
         {
             // From 01 to 00
-            (dataVar.encoder0position)--;
-            dataVar.encoder0step = -1;
+            encoder0position--;
+            encoder0step = -1;
         }
         //Exit active CPU
         __bic_SR_register_on_exit(LPM0_bits);
@@ -319,14 +364,14 @@ void port1_ISR (void)
         if(encoder0state & 0x04)
         {
             // From 11 to 01
-            (dataVar.encoder0position)--;
-            dataVar.encoder0step = -1;
+            encoder0position--;
+            encoder0step = -1;
         }
         else
         {
             // From 10 to 00
-            (dataVar.encoder0position)--;
-            dataVar.encoder0step = 1;
+            encoder0position--;
+            encoder0step = 1;
         }
         //Exit active CPU
         __bic_SR_register_on_exit(LPM0_bits);
@@ -339,14 +384,14 @@ void port1_ISR (void)
         if(encoder0state & 0x08)
         {
             // From 10 to 11
-            (dataVar.encoder0position)--;
-            dataVar.encoder0step = -1;
+            encoder0position--;
+            encoder0step = -1;
         }
         else
         {
             // From 00 to 01
-            (dataVar.encoder0position)++;
-            dataVar.encoder0step = 1;
+            encoder0position++;
+            encoder0step = 1;
         }
         //Exit active CPU
         __bic_SR_register_on_exit(LPM0_bits);
@@ -359,14 +404,14 @@ void port1_ISR (void)
         if(encoder0state & 0x04)
         {
             // From 01 to 11
-            (dataVar.encoder0position)++;
-            dataVar.encoder0step = 1;
+            encoder0position++;
+            encoder0step = 1;
         }
         else
         {
             // From 00 to 10
-            (dataVar.encoder0position)--;
-            dataVar.encoder0step = -1;
+            encoder0position--;
+            encoder0step = -1;
         }
         //Exit active CPU
         __bic_SR_register_on_exit(LPM0_bits);

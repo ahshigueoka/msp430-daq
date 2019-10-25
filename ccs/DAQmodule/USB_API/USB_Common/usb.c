@@ -412,7 +412,7 @@ uint8_t USB_init (void)
  */
 uint8_t USB_setup(uint8_t connectEnable, uint8_t eventsEnable)
 {
-	uint8_t status;
+  	uint8_t status;
 
 	status = USB_init();
 
